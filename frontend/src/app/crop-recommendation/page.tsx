@@ -40,26 +40,34 @@ export default function CropRecommendation() {
   };
 
   return (
-    <div className="p-8 text-center max-w-lg mx-auto bg-white shadow-xl rounded-xl border border-gray-200">
-      <h1 className="text-3xl font-bold mb-6 text-gray-800">Crop Recommendation</h1>
-      <div className="grid grid-cols-2 gap-4">
-        <input type="text" value={soilType} onChange={(e) => setSoilType(e.target.value)} placeholder="Soil Type" className="border p-3 rounded-md shadow-sm w-full" />
-        <input type="text" value={ph} onChange={(e) => setPh(e.target.value)} placeholder="pH Level" className="border p-3 rounded-md shadow-sm w-full" />
-        <input type="text" value={nitrogen} onChange={(e) => setNitrogen(e.target.value)} placeholder="Nitrogen Level" className="border p-3 rounded-md shadow-sm w-full" />
-        <input type="text" value={phosphorus} onChange={(e) => setPhosphorus(e.target.value)} placeholder="Phosphorus Level" className="border p-3 rounded-md shadow-sm w-full" />
-        <input type="text" value={potassium} onChange={(e) => setPotassium(e.target.value)} placeholder="Potassium Level" className="border p-3 rounded-md shadow-sm w-full" />
-        <input type="text" value={temperature} onChange={(e) => setTemperature(e.target.value)} placeholder="Temperature" className="border p-3 rounded-md shadow-sm w-full" />
-        <input type="text" value={humidity} onChange={(e) => setHumidity(e.target.value)} placeholder="Humidity" className="border p-3 rounded-md shadow-sm w-full" />
-        <input type="text" value={rainfall} onChange={(e) => setRainfall(e.target.value)} placeholder="Rainfall" className="border p-3 rounded-md shadow-sm w-full" />
+    <div className="flex flex-col items-center justify-center min-h-screen text-center bg-gradient-to-br from-green-50 to-green-200 p-6">
+      <h1 className="text-4xl font-extrabold text-green-800 drop-shadow-lg">
+        Crop Recommendation 🌾
+      </h1>
+      <div className="mt-6 bg-white p-6 rounded-xl shadow-lg w-full max-w-lg">
+        <div className="grid grid-cols-2 gap-4">
+          <input type="text" value={soilType} onChange={(e) => setSoilType(e.target.value)} placeholder="Soil Type" className="border p-3 rounded-lg shadow-sm w-full" />
+          <input type="text" value={ph} onChange={(e) => setPh(e.target.value)} placeholder="pH Level" className="border p-3 rounded-lg shadow-sm w-full" />
+          <input type="text" value={nitrogen} onChange={(e) => setNitrogen(e.target.value)} placeholder="Nitrogen Level" className="border p-3 rounded-lg shadow-sm w-full" />
+          <input type="text" value={phosphorus} onChange={(e) => setPhosphorus(e.target.value)} placeholder="Phosphorus Level" className="border p-3 rounded-lg shadow-sm w-full" />
+          <input type="text" value={potassium} onChange={(e) => setPotassium(e.target.value)} placeholder="Potassium Level" className="border p-3 rounded-lg shadow-sm w-full" />
+          <input type="text" value={temperature} onChange={(e) => setTemperature(e.target.value)} placeholder="Temperature" className="border p-3 rounded-lg shadow-sm w-full" />
+          <input type="text" value={humidity} onChange={(e) => setHumidity(e.target.value)} placeholder="Humidity" className="border p-3 rounded-lg shadow-sm w-full" />
+          <input type="text" value={rainfall} onChange={(e) => setRainfall(e.target.value)} placeholder="Rainfall" className="border p-3 rounded-lg shadow-sm w-full" />
+        </div>
+        <button 
+          onClick={handleRecommend} 
+          className="w-full bg-green-600 text-white px-6 py-3 mt-6 font-semibold rounded-xl shadow-md hover:bg-green-700 transition-all disabled:bg-gray-400 disabled:cursor-not-allowed"
+          disabled={loading}
+        >
+          {loading ? "Fetching..." : "Get Recommendations"}
+        </button>
+        {recommendations && (
+          <p className="mt-4 text-lg text-green-900 font-medium">
+            Recommended Crops: <span className="font-bold">{recommendations}</span>
+          </p>
+        )}
       </div>
-      <button 
-        onClick={handleRecommend} 
-        className="bg-green-600 text-white px-6 py-3 mt-6 rounded-lg hover:bg-green-700 transition duration-200 disabled:bg-gray-400 disabled:cursor-not-allowed"
-        disabled={loading}
-      >
-        {loading ? "Fetching..." : "Get Recommendations"}
-      </button>
-      {recommendations && <p className="mt-6 text-lg font-semibold text-gray-700">{recommendations}</p>}
     </div>
   );
 }
