@@ -3,7 +3,8 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 import random
-# Create your views here.
+from django.views.decorators.http import require_GET
+from datetime import datetime
 from django.http import JsonResponse
 
 def hello_world(request):
@@ -51,3 +52,18 @@ def crop_recommendation(request):
             return JsonResponse({"error": str(e)}, status=400)
 
     return JsonResponse({"error": "Only POST method allowed."}, status=405)
+
+@require_GET
+def user_history(request):
+    # This is mock data; replace it with data from the database if needed
+    history_data = [
+        {
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "disease": "Rust"
+        },
+        {
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "crop_recommendation": "Wheat, Rice"
+        }
+    ]
+    return JsonResponse(history_data, safe=False)
