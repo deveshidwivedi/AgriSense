@@ -116,66 +116,59 @@ def detect_disease(request):
         # Return a 500 internal server error with the error message
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# @csrf_exempt
-# @require_POST
-# def detect_disease(request):
-#     return JsonResponse({
-#         "message": "Test successful. API is working!"
-#     })
 
-# Dynamically get the base path relative to this file (views.py)
-# BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# # Construct full paths to model and scaler
-# MODEL_PATH = os.path.join(BASE_DIR, 'models', 'crop_recommendation_model.pkl')
-# SCALER_PATH = os.path.join(BASE_DIR, 'models', 'scaler.pkl')
+# Construct full paths to model and scaler
+MODEL_PATHH = os.path.join(BASE_DIR, 'models', 'crop_recommendation_model.pkl')
+SCALER_PATHH = os.path.join(BASE_DIR, 'models', 'scaler.pkl')
 
-# # Load the model and scaler
-# model = joblib.load(MODEL_PATH)
-# scaler = joblib.load(SCALER_PATH)
+# Load the model and scaler
+model2 = joblib.load(MODEL_PATHH)
+scaler = joblib.load(SCALER_PATHH)
 
-# @csrf_exempt
-# def crop_recommendation(request):
-#     if request.method == 'POST':
-#         try:
-#             data = json.loads(request.body)
+@csrf_exempt
+def crop_recommendation(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
 
-#             # Extract feature values
-#             N = float(data.get("N"))
-#             P = float(data.get("P"))
-#             K = float(data.get("K"))
-#             temperature = float(data.get("temperature"))
-#             humidity = float(data.get("humidity"))
-#             ph = float(data.get("ph"))
-#             rainfall = float(data.get("rainfall"))
+            # Extract feature values
+            N = float(data.get("N"))
+            P = float(data.get("P"))
+            K = float(data.get("K"))
+            temperature = float(data.get("temperature"))
+            humidity = float(data.get("humidity"))
+            ph = float(data.get("ph"))
+            rainfall = float(data.get("rainfall"))
 
-#             # Arrange input data
-#             input_data = np.array([[N, P, K, temperature, humidity, ph, rainfall]])
+            # Arrange input data
+            input_data = np.array([[N, P, K, temperature, humidity, ph, rainfall]])
 
-#             # Scale input
-#             input_scaled = scaler.transform(input_data)
+            # Scale input
+            input_scaled = scaler.transform(input_data)
 
-#             # Predict
-#             prediction = model.predict(input_scaled)
+            # Predict
+            prediction = model2.predict(input_scaled)
 
-#             return JsonResponse({"recommended_crop": prediction[0]})
+            return JsonResponse({"recommended_crop": prediction[0]})
 
-#         except Exception as e:
-#             return JsonResponse({"error": str(e)}, status=400)
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=400)
 
-#     return JsonResponse({"error": "Only POST method is allowed."}, status=405)
+    return JsonResponse({"error": "Only POST method is allowed."}, status=405)
 
-@require_GET
-def user_history(request):
-    # This is mock data; replace it with data from the database if needed
-    history_data = [
-        {
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "disease": "Rust"
-        },
-        {
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "crop_recommendation": "Wheat, Rice"
-        }
-    ]
-    return JsonResponse(history_data, safe=False)
+# @require_GET
+# def user_history(request):
+#     # This is mock data; replace it with data from the database if needed
+#     history_data = [
+#         {
+#             "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+#             "disease": "Rust"
+#         },
+#         {
+#             "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+#             "crop_recommendation": "Wheat, Rice"
+#         }
+#     ]
+#     return JsonResponse(history_data, safe=False)
