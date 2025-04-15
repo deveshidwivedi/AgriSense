@@ -1,0 +1,6 @@
+django
+numpy
+tensorflow
+Pillow
+djangorestframework
+django-cors-headers
