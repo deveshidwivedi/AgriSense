@@ -9,6 +9,7 @@ export default function DiseaseDetection() {
   const [prediction, setPrediction] = useState<{
     predicted_disease: string;
     confidence: number;
+    gradcam_image_url?: string; 
   } | null>(null);
   const [error, setError] = useState<string>("");
 
@@ -31,7 +32,10 @@ export default function DiseaseDetection() {
       const response = await axios.post(
         "http://127.0.0.1:8000/api/detect-disease/",
         formData
+        
       );
+      console.log("Response data:", response.data);
+console.log("Gradcam URL:", response.data.gradcam_image_url);
       setPrediction(response.data);
       setError("");
     } catch (err) {
@@ -70,20 +74,31 @@ export default function DiseaseDetection() {
         >
           Upload & Detect
         </button>
-
         {prediction && (
-          <div className="mt-4 text-green-900 break-words">
-            <p className="text-lg font-semibold break-words">
-              Detected Disease:
-              <span className="font-bold ml-1 break-words">
-                {prediction.predicted_disease.replace(/_/g, " ")}
-              </span>
-            </p>
-            <p className="text-sm">
-              Confidence: {(prediction.confidence * 100).toFixed(2)}%
-            </p>
-          </div>
-        )}
+  <div className="mt-4 text-green-900 break-words">
+    <p className="text-lg font-semibold break-words">
+      Detected Disease:
+      <span className="font-bold ml-1 break-words">
+        {prediction.predicted_disease.replace(/_/g, " ")}
+      </span>
+    </p>
+    {/* <p className="text-sm">
+      Confidence: {(prediction.confidence * 100).toFixed(2)}%
+    </p> */}
+
+    {/* Grad-CAM Image Display */}
+    {prediction.gradcam_image_url && (
+      <div className="mt-4">
+        {/* <p className="text-sm text-gray-600 mb-1">Heatmap Visualization:</p> */}
+        <img
+          src={prediction.gradcam_image_url}
+          alt="Grad-CAM"
+          className="w-full rounded-lg border max-h-64 object-cover"
+        />
+      </div>
+    )}
+  </div>
+)}
 
         {error && (
           <p className="mt-4 text-red-600 font-semibold">{error}</p>
