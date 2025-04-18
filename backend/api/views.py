@@ -12,6 +12,8 @@ from datetime import datetime
 import joblib
 from rest_framework.decorators import api_view
 from rest_framework import status
+from django.conf import settings
+import tensorflow as tf
 
 import numpy as np
 from django.http import JsonResponse
@@ -28,7 +30,7 @@ import cv2
 def hello_world(request):
     return JsonResponse({"message": "Hello, World!"})
 # Load the model at the beginning
-MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "fast_plant_disease_model.h5")
+MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "plant_disease_image_identification.h5")
 model = load_model(MODEL_PATH)
 
 # Load class names using the correct ordering (you can extract from a saved dictionary or hardcode)
@@ -72,50 +74,87 @@ CLASS_NAMES = [
     'Tomato___Tomato_mosaic_virus',
     'Tomato___healthy'
 ]
+
+# Grad-CAM function
+def make_gradcam_heatmap(img_array, model, last_conv_layer_name, pred_index=None):
+    grad_model = tf.keras.models.Model(
+        [model.inputs], 
+        [model.get_layer(last_conv_layer_name).output, model.output]
+    )
+    with tf.GradientTape() as tape:
+        conv_outputs, predictions = grad_model(img_array)
+        if pred_index is None:
+            pred_index = tf.argmax(predictions[0])
+        class_channel = predictions[:, pred_index]
+
+    grads = tape.gradient(class_channel, conv_outputs)
+    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+    conv_outputs = conv_outputs[0]
+    heatmap = conv_outputs @ pooled_grads[..., tf.newaxis]
+    heatmap = tf.squeeze(heatmap)
+    heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
+    return heatmap.numpy()
+
+
 @api_view(['POST'])
 def detect_disease(request):
     try:
-        # Get the image file from the request
+        # 1. Get uploaded image
         image_file = request.FILES['image']
-        
-        # Save the image to a temporary path
         file_path = default_storage.save(f"temp/{image_file.name}", image_file)
+        abs_path = os.path.join(settings.MEDIA_ROOT, file_path)
 
-        # Read and preprocess the image
-        img = cv2.imread(file_path)
-        img = cv2.resize(img, (96, 96))
-        img = img / 255.0
-        img_array = np.expand_dims(img, axis=0)
-        print(f"Image shape: {img_array.shape}")
+        # 2. Read and preprocess the image
+        img = cv2.imread(abs_path)
+        img_resized = cv2.resize(img, (96, 96))
+        img_normalized = img_resized / 255.0
+        img_input = np.expand_dims(img_normalized, axis=0)
 
-        # Predict the disease using the model
-        predictions = model.predict(img_array)
+        # 3. Predict the class
+        predictions = model.predict(img_input)
         predicted_index = np.argmax(predictions)
+        confidence = float(np.max(predictions))
 
-        # Check if the predicted class index is valid
         if predicted_index >= len(CLASS_NAMES):
             return Response({'error': 'Predicted class index is out of range.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Get the predicted disease name and confidence
         predicted_disease = CLASS_NAMES[predicted_index]
-        confidence = float(np.max(predictions))
 
-        # Clean up: remove the temporary image file
-        os.remove(file_path)
+        # 4. Generate Grad-CAM
+        heatmap = make_gradcam_heatmap(img_input, model, last_conv_layer_name="Conv_1", pred_index=predicted_index)
+        heatmap = cv2.resize(heatmap, (img.shape[1], img.shape[0]))
+        heatmap = np.uint8(255 * heatmap)
+        heatmap_color = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+        superimposed_img = cv2.addWeighted(img, 0.7, heatmap_color, 0.3, 0)
 
-        # Return the prediction response
+        # 5. Save Grad-CAM image in backend/backend/media/gradcam/
+        gradcam_filename = f"gradcam_{os.path.basename(image_file.name)}"
+        gradcam_path = f"gradcam/{gradcam_filename}"
+        full_gradcam_path = os.path.join(settings.MEDIA_ROOT, "gradcam", gradcam_filename)
+        print(f"MEDIA_ROOT: {settings.MEDIA_ROOT}")
+        print(f"Full gradcam path: {full_gradcam_path}")
+        print(f"File exists after save: {os.path.exists(full_gradcam_path)}")
+    
+        # Make sure the 'gradcam' directory exists
+        os.makedirs(os.path.dirname(full_gradcam_path), exist_ok=True)
+        cv2.imwrite(full_gradcam_path, superimposed_img)
+
+        # 6. Clean up uploaded image
+        os.remove(abs_path)
+
+        # 7. Return result
+        gradcam_url = request.build_absolute_uri(settings.MEDIA_URL + gradcam_path)
         return Response({
             'predicted_disease': predicted_disease,
-            'confidence': confidence
+            'confidence': confidence,
+            'gradcam_image_url': gradcam_url
         })
 
     except Exception as e:
-        # Print the error for debugging
-        print(f"Error during detection: {e}")
-        
-        # Return a 500 internal server error with the error message
+        print(f"Error: {e}")
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+#crop recommendation
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
