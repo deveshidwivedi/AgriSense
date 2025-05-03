@@ -120,20 +120,24 @@ def detect_disease(request):
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Construct full paths to model and scaler
-MODEL_PATHH = os.path.join(BASE_DIR, 'models', 'crop_recommendation_model.pkl')
-SCALER_PATHH = os.path.join(BASE_DIR, 'models', 'scaler.pkl')
+MODEL_PATHH = os.path.join(BASE_DIR, 'models', 'crop_r1.pkl')
+SCALER_PATHH = os.path.join(BASE_DIR, 'models', 'scaler_1.pkl')
 
 # Load the model and scaler
 model2 = joblib.load(MODEL_PATHH)
 scaler = joblib.load(SCALER_PATHH)
 
+
 @csrf_exempt
 def crop_recommendation(request):
-    if request.method == 'POST':
-        try:
-            data = json.loads(request.body)
+    if request.method != 'POST':
+        return JsonResponse({"detail": "Only POST method is allowed."}, status=405)
 
-            # Extract feature values
+    try:
+        data = json.loads(request.body)
+
+        # Extract and validate input values
+        try:
             N = float(data.get("N"))
             P = float(data.get("P"))
             K = float(data.get("K"))
@@ -141,22 +145,37 @@ def crop_recommendation(request):
             humidity = float(data.get("humidity"))
             ph = float(data.get("ph"))
             rainfall = float(data.get("rainfall"))
+        except (TypeError, ValueError):
+            return JsonResponse({"detail": "All input values must be valid numbers."}, status=400)
 
-            # Arrange input data
-            input_data = np.array([[N, P, K, temperature, humidity, ph, rainfall]])
+        # Validate ranges
+        if not (0 <= N <= 140):
+            return JsonResponse({"detail": "Nitrogen must be between 0 and 140."}, status=400)
+        if not (0 <= P <= 145):
+            return JsonResponse({"detail": "Phosphorus must be between 0 and 145."}, status=400)
+        if not (0 <= K <= 205):
+            return JsonResponse({"detail": "Potassium must be between 0 and 205."}, status=400)
+        if not (10 <= temperature <= 45):
+            return JsonResponse({"detail": "Temperature must be between 10°C and 45°C."}, status=400)
+        if not (20 <= humidity <= 100):
+            return JsonResponse({"detail": "Humidity must be between 20% and 100%."}, status=400)
+        if not (3.5 <= ph <= 9.5):
+            return JsonResponse({"detail": "pH must be between 3.5 and 9.5."}, status=400)
+        if not (0 <= rainfall <= 300):
+            return JsonResponse({"detail": "Rainfall must be between 0 and 300mm."}, status=400)
 
-            # Scale input
-            input_scaled = scaler.transform(input_data)
+        # Prepare input for prediction
+        input_data = np.array([[N, P, K, temperature, humidity, ph, rainfall]])
+        input_scaled = scaler.transform(input_data)
+        prediction = model2.predict(input_scaled)
 
-            # Predict
-            prediction = model2.predict(input_scaled)
+        return JsonResponse({"recommended_crop": prediction[0]})
 
-            return JsonResponse({"recommended_crop": prediction[0]})
+    except json.JSONDecodeError:
+        return JsonResponse({"detail": "Invalid JSON format."}, status=400)
 
-        except Exception as e:
-            return JsonResponse({"error": str(e)}, status=400)
-
-    return JsonResponse({"error": "Only POST method is allowed."}, status=405)
+    except Exception as e:
+        return JsonResponse({"detail": f"Server error: {str(e)}"}, status=500)
 
 # @require_GET
 # def user_history(request):
