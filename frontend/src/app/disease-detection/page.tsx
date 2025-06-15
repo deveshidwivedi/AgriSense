@@ -9,6 +9,13 @@ export default function DiseaseDetection() {
   const [prediction, setPrediction] = useState<{
     predicted_disease: string;
     confidence: number;
+    all_detections?: Array<{
+      disease: string;
+      confidence: number;
+      bounding_box: { x1: number; y1: number; x2: number; y2: number };
+    }>;
+    detection_count?: number;
+    annotated_image?: string;
   } | null>(null);
   const [error, setError] = useState<string>("");
 
