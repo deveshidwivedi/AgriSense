@@ -1,17 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 interface DetectionResult {
   predicted_disease: string;
   confidence: number;
-  annotated_image?: string;
-  detected_objects?: Array<{
-    bbox: [number, number, number, number];
-    confidence: number;
-    class_id: number;
-  }>;
-  has_detections?: boolean;
+  gradcam_image?: string;
+  gradcam_generated?: boolean;
+  gradcam_error?: string;
+  visualization_type?: string;
+  last_conv_layer?: string;
+  reason?: string;
 }
 
 export default function DiseaseDetection() {
@@ -52,6 +52,7 @@ export default function DiseaseDetection() {
       }
 
       const data = await response.json();
+      console.log("Response data:", data); // Debug log
       setPrediction(data);
       setError("");
     } catch (err) {
@@ -64,17 +65,45 @@ export default function DiseaseDetection() {
   };
 
   const getDiseaseStatus = (disease: string) => {
-    return disease.toLowerCase() === "healthy" ? "Healthy" : "Disease Detected";
+    return disease.toLowerCase().includes("healthy")
+      ? "Healthy"
+      : "Disease Detected";
   };
 
   const getStatusColor = (disease: string) => {
-    return disease.toLowerCase() === "healthy"
+    return disease.toLowerCase().includes("healthy")
       ? "text-green-600"
       : "text-red-600";
   };
 
+  const getVisualizationTitle = (prediction: DetectionResult) => {
+    if (!prediction.gradcam_generated) {
+      if (prediction.reason === "healthy_plant") {
+        return "Plant Analysis (Healthy)";
+      } else if (prediction.reason === "low_confidence") {
+        return "Plant Analysis (Low Confidence)";
+      } else {
+        return "Plant Analysis";
+      }
+    }
+    return "Disease Heat Map";
+  };
+
+  const getVisualizationDescription = (prediction: DetectionResult) => {
+    if (!prediction.gradcam_generated) {
+      if (prediction.reason === "healthy_plant") {
+        return "No heat map generated - plant appears healthy";
+      } else if (prediction.reason === "low_confidence") {
+        return "No heat map generated - prediction confidence too low";
+      } else if (prediction.gradcam_error) {
+        return `Heat map generation failed: ${prediction.gradcam_error}`;
+      }
+      return "Original image displayed";
+    }
+  };
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen text-center bg-gradient-to-br from-green-50 to-green-200 p-6">
+    <div className="flex flex-col items-center justify-center min-h-screen text-center bg-gradient-to-br from-green-50 to-green-200 p-6 relative">
       <h1 className="text-4xl font-extrabold text-green-800 drop-shadow-lg mb-8">
         Plant Disease Detection 🌿
       </h1>
@@ -99,7 +128,7 @@ export default function DiseaseDetection() {
         </div>
 
         {/* Results Section */}
-        {(previewUrl || prediction?.annotated_image) && (
+        {(previewUrl || prediction?.gradcam_image) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Original Image */}
             {previewUrl && (
@@ -107,36 +136,38 @@ export default function DiseaseDetection() {
                 <h3 className="text-lg font-semibold text-gray-800 mb-2">
                   Original Image
                 </h3>
-                <div className="border rounded-lg overflow-hidden">
+                <div className="border rounded-lg overflow-hidden shadow-md">
                   <img
                     src={previewUrl}
-                    alt="Original"
+                    alt="Original plant image"
                     className="w-full h-64 object-cover"
                   />
                 </div>
               </div>
             )}
 
-            {/* Annotated Image with Bounding Boxes */}
-            {prediction?.annotated_image && (
+            {/* GradCAM Visualization */}
+            {prediction?.gradcam_image && (
               <div>
                 <h3 className="text-lg font-semibold text-gray-800 mb-2">
-                  {prediction.has_detections
-                    ? "Detected Disease Areas"
-                    : "Analysis Result"}
+                  {getVisualizationTitle(prediction)}
                 </h3>
-                <div className="border rounded-lg overflow-hidden">
+                <div className="border rounded-lg overflow-hidden shadow-md">
                   <img
-                    src={prediction.annotated_image}
-                    alt="Analysis Result"
+                    src={prediction.gradcam_image}
+                    alt="Disease analysis visualization"
                     className="w-full h-64 object-cover"
                   />
                 </div>
-                {prediction.has_detections && (
-                  <p className="text-sm text-gray-600 mt-2">
-                    Red boxes show detected disease areas
-                  </p>
-                )}
+                <p className="text-sm text-gray-600 mt-2">
+                  {getVisualizationDescription(prediction)}
+                </p>
+                {/* {prediction.gradcam_generated && (
+                  <div className="mt-2 p-2 bg-blue-50 rounded text-xs text-gray-700">
+                    <strong>Technical Info:</strong> Visualization generated
+                    using layer: {prediction.last_conv_layer}
+                  </div>
+                )} */}
               </div>
             )}
           </div>
@@ -163,42 +194,50 @@ export default function DiseaseDetection() {
                     {prediction.predicted_disease.replace(/_/g, " ")}
                   </span>
                 </p>
-                <p className="text-gray-700">
+                {/* <p className="text-gray-700">
                   Confidence:{" "}
                   <span className="font-medium">
                     {(prediction.confidence * 100).toFixed(2)}%
                   </span>
-                </p>
+                </p> */}
               </div>
 
-              {prediction.detected_objects &&
-                prediction.detected_objects.length > 0 && (
-                  <div>
-                    <h4 className="font-semibold text-gray-800 mb-2">
-                      Detection Details
-                    </h4>
-                    <p className="text-gray-700">
-                      Affected Areas:{" "}
-                      <span className="font-medium text-red-600">
-                        {prediction.detected_objects.length} region(s) detected
-                      </span>
-                    </p>
-                    <div className="mt-2 max-h-32 overflow-y-auto">
-                      {prediction.detected_objects.map((obj, index) => (
-                        <div key={index} className="text-sm text-gray-600 py-1">
-                          Area {index + 1}: {(obj.confidence * 100).toFixed(1)}%
-                          confidence
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+              <div>
+                <h4 className="font-semibold text-gray-800 mb-2">
+                  Visualization Details
+                </h4>
+                <p className="text-gray-700">
+                  Heat Map:{" "}
+                  <span
+                    className={`font-medium ${
+                      prediction.gradcam_generated
+                        ? "text-green-600"
+                        : "text-gray-600"
+                    }`}
+                  >
+                    {prediction.gradcam_generated
+                      ? "Generated"
+                      : "Not Generated"}
+                  </span>
+                </p>
+                {/* {prediction.gradcam_generated && (
+                  <p className="text-sm text-gray-600 mt-1">
+                    Heat map highlights areas that influenced the disease
+                    classification decision.
+                  </p>
+                )} */}
+                {prediction.gradcam_error && (
+                  <p className="text-sm text-red-600 mt-1">
+                    Error: {prediction.gradcam_error}
+                  </p>
                 )}
+              </div>
             </div>
 
             {/* Health Status Banner */}
             <div
               className={`mt-4 p-3 rounded-lg ${
-                prediction.predicted_disease.toLowerCase() === "healthy"
+                prediction.predicted_disease.toLowerCase().includes("healthy")
                   ? "bg-green-100 border border-green-300"
                   : "bg-red-100 border border-red-300"
               }`}
@@ -208,20 +247,45 @@ export default function DiseaseDetection() {
                   prediction.predicted_disease
                 )}`}
               >
-                {prediction.predicted_disease.toLowerCase() === "healthy"
+                {prediction.predicted_disease.toLowerCase().includes("healthy")
                   ? "✅ Plant appears healthy!"
                   : `⚠️ Disease detected: ${prediction.predicted_disease.replace(
                       /_/g,
                       " "
                     )}`}
               </p>
-              {prediction.has_detections && (
+              {prediction.gradcam_generated && (
                 <p className="text-sm text-gray-700 mt-1">
-                  Red bounding boxes highlight areas of concern that may require
-                  treatment.
+                  The heat map visualization shows which parts of the leaf
+                  contributed most to the disease classification. Warmer colors
+                  (red/orange) indicate areas of highest attention by the AI
+                  model.
                 </p>
               )}
             </div>
+
+            {/* Legend for GradCAM */}
+            {/* {prediction.gradcam_generated && (
+              <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                <h5 className="font-semibold text-gray-800 mb-2">
+                  Heat Map Legend
+                </h5>
+                <div className="flex items-center space-x-4 text-sm">
+                  <div className="flex items-center">
+                    <div className="w-4 h-4 bg-red-500 rounded mr-2"></div>
+                    <span>High attention (disease indicators)</span>
+                  </div>
+                  <div className="flex items-center">
+                    <div className="w-4 h-4 bg-yellow-400 rounded mr-2"></div>
+                    <span>Medium attention</span>
+                  </div>
+                  <div className="flex items-center">
+                    <div className="w-4 h-4 bg-blue-500 rounded mr-2"></div>
+                    <span>Low attention</span>
+                  </div>
+                </div>
+              </div>
+            )} */}
           </div>
         )}
 
@@ -231,6 +295,14 @@ export default function DiseaseDetection() {
           </div>
         )}
       </div>
+
+      {/* Crop Recommendation Button - Bottom Right */}
+      <Link href="/crop-recommendation">
+        <button className="fixed bottom-6 right-6 bg-emerald-600 text-white px-4 py-3 rounded-full shadow-lg hover:bg-emerald-700 transition-all flex items-center space-x-2 text-sm font-medium border border-emerald-500">
+          <span>🌾</span>
+          <span>Get Crop Recommendation</span>
+        </button>
+      </Link>
     </div>
   );
 }
