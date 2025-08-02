@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import crop_recommendation, detect_disease, hello_world
+from .views import  detect_disease, hello_world, crop_recommendation 
 
 urlpatterns = [
     path('hello/', hello_world),

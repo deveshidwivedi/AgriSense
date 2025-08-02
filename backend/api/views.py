@@ -1,294 +1,395 @@
+import base64
 import io
 import os
-# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow logs
-# import tensorflow as tf
-# tf.get_logger().setLevel('ERROR') 
-
 import json
-import random
-from django.views.decorators.http import require_GET
-from django.core.files.storage import default_storage
-from datetime import datetime
-import joblib
-from rest_framework.decorators import api_view
-from rest_framework import status
-
 import numpy as np
+import cv2
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_GET
+from django.core.files.storage import default_storage
+from datetime import datetime
+from rest_framework.decorators import api_view
+from rest_framework import status
 from rest_framework.response import Response
-from tensorflow.keras.models import load_model
+from tensorflow.keras.models import load_model, Model
 from tensorflow.keras.preprocessing import image
 from PIL import Image
-import cv2
-from ultralytics import YOLO
-import tempfile
+import tensorflow as tf
+import joblib
 
+CLASS_NAMES = [
+    'Apple___Apple_scab',
+    'Apple___Black_rot',
+    'Apple___Cedar_apple_rust',
+    'Apple___healthy',
+    'Blueberry___healthy',
+    'Cherry_(including_sour)___Powdery_mildew',
+    'Cherry_(including_sour)___healthy',
+    'Corn_(maize)___Cercospora_leaf_spot_Gray_leaf_spot',
+    'Corn_(maize)___Common_rust_',
+    'Corn_(maize)___Northern_Leaf_Blight',
+    'Corn_(maize)___healthy',
+    'Grape___Black_rot',
+    'Grape___Esca_(Black_Measles)',
+    'Grape___Leaf_blight_(Isariopsis_Leaf_Spot)',
+    'Grape___healthy',
+    'Orange___Haunglongbing_(Citrus_greening)',
+    'Peach___Bacterial_spot',
+    'Peach___healthy',
+    'Pepper,_bell___Bacterial_spot',
+    'Pepper,_bell___healthy',
+    'Potato___Early_blight',
+    'Potato___Late_blight',
+    'Potato___healthy',
+    'Raspberry___healthy',
+    'Soybean___healthy',
+    'Squash___Powdery_mildew',
+    'Strawberry___Leaf_scorch',
+    'Strawberry___healthy',
+    'Tomato___Bacterial_spot',
+    'Tomato___Early_blight',
+    'Tomato___Late_blight',
+    'Tomato___Leaf_Mold',
+    'Tomato___Septoria_leaf_spot',
+    'Tomato___Spider_mites_Two-spotted_spider_mite',
+    'Tomato___Target_Spot',
+    'Tomato___Tomato_Yellow_Leaf_Curl_Virus',
+    'Tomato___Tomato_mosaic_virus',
+    'Tomato___healthy'
+]
 
+# Load the model
+MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "fast_plant_disease_model.h5")
+classification_model = load_model(MODEL_PATH)
+
+def get_mobilenet_last_conv_layer(model):
+    """
+    Get a suitable convolutional layer for MobileNetV2-based models.
+    We'll try layers from different depths to get better spatial resolution.
+    """
+    # Try layers with different spatial resolutions for better visualization
+    target_layers = [
+        # Higher resolution layers (better for visualization)
+        'block_13_expand_relu',   # Earlier block with more spatial detail
+        'block_12_expand_relu',   # Even earlier for more detail
+        'block_10_expand_relu',   # Mid-level features
+        
+        # Standard end layers
+        'out_relu',               # ReLU after last conv (3x3)
+        'Conv_1',                 # Last conv layer (3x3)
+        'block_16_project',       # Last MobileNet block conv
+        'block_16_expand_relu',   # Alternative in block 16
+        'block_15_project',       # Previous block
+        'block_15_expand_relu'
+    ]
+    
+    print("Trying to find suitable layer for GradCAM...")
+    
+    for layer_name in target_layers:
+        try:
+            layer = model.get_layer(layer_name)
+            print(f"Found layer: {layer_name} - Type: {type(layer).__name__}")
+            
+            # Test if we can create a model with this layer
+            try:
+                test_model = Model(inputs=model.input, outputs=layer.output)
+                output_shape = test_model.output_shape
+                print(f"Layer {layer_name} output shape: {output_shape}")
+                
+                # Check if it's 4D (suitable for GradCAM)
+                if len(output_shape) == 4:
+                    # Prefer layers with higher spatial resolution for better visualization
+                    spatial_size = output_shape[1] * output_shape[2] if output_shape[1] is not None else 0
+                    print(f"Selected layer: {layer_name} with shape {output_shape}, spatial size: {spatial_size}")
+                    return layer_name
+                else:
+                    print(f"Layer {layer_name} has {len(output_shape)}D output, need 4D")
+                    
+            except Exception as e:
+                print(f"Cannot create model with layer {layer_name}: {e}")
+                continue
+                
+        except Exception as e:
+            print(f"Layer {layer_name} not found: {e}")
+            continue
+    
+    print("No suitable layer found")
+    return None
+
+def make_gradcam_heatmap(img_array, model, last_conv_layer_name, pred_index=None):
+    """
+    Generate GradCAM heatmap for MobileNetV2-based models.
+    """
+    print(f"Creating GradCAM for layer: {last_conv_layer_name}")
+    
+    try:
+        # Get the target layer
+        target_layer = model.get_layer(last_conv_layer_name)
+        
+        # Create a model that maps the input image to the activations of the target layer
+        # as well as the output predictions
+        grad_model = Model(
+            inputs=[model.inputs],
+            outputs=[target_layer.output, model.output]
+        )
+        
+        print(f"Grad model created successfully")
+        
+        # Compute the gradient of the top predicted class
+        with tf.GradientTape() as tape:
+            conv_outputs, predictions = grad_model(img_array)
+            if pred_index is None:
+                pred_index = tf.argmax(predictions[0])
+            class_channel = predictions[:, pred_index]
+        
+        print(f"Forward pass completed, computing gradients...")
+        
+        # Get the gradients of the class output with respect to the feature map
+        grads = tape.gradient(class_channel, conv_outputs)
+        
+        if grads is None:
+            raise ValueError("Gradients are None - the layer might not be suitable for GradCAM")
+        
+        # Global average pooling of the gradients
+        pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+        
+        # Multiply each channel by its importance and sum
+        conv_outputs = conv_outputs[0]
+        heatmap = conv_outputs @ pooled_grads[..., tf.newaxis]
+        heatmap = tf.squeeze(heatmap)
+        
+        # Normalize the heatmap
+        heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
+        
+        print(f"GradCAM heatmap generated successfully, shape: {heatmap.shape}")
+        
+        return heatmap.numpy()
+        
+    except Exception as e:
+        print(f"Error in make_gradcam_heatmap: {e}")
+        raise e
+
+def apply_gradcam_to_image(original_img, heatmap, alpha=0.5, colormap=cv2.COLORMAP_JET):
+    """
+    Apply GradCAM heatmap overlay to the original image with enhanced visualization.
+    """
+    # Get original image dimensions
+    original_height, original_width = original_img.shape[:2]
+    
+    print(f"Original image shape: {original_img.shape}")
+    print(f"Heatmap shape before resize: {heatmap.shape}")
+    
+    # Use high-quality interpolation for upsampling small heatmaps
+    if heatmap.shape[0] < 32 or heatmap.shape[1] < 32:
+        # For very small heatmaps, use cubic interpolation
+        heatmap_resized = cv2.resize(heatmap, (original_width, original_height), interpolation=cv2.INTER_CUBIC)
+    else:
+        # For larger heatmaps, use linear interpolation
+        heatmap_resized = cv2.resize(heatmap, (original_width, original_height), interpolation=cv2.INTER_LINEAR)
+    
+    print(f"Heatmap shape after resize: {heatmap_resized.shape}")
+    
+    # Apply Gaussian smoothing for better visual quality
+    # Kernel size proportional to image size
+    kernel_size = max(3, min(15, original_width // 32))
+    if kernel_size % 2 == 0:
+        kernel_size += 1  # Ensure odd kernel size
+    
+    heatmap_smooth = cv2.GaussianBlur(heatmap_resized, (kernel_size, kernel_size), 0)
+    
+    # Enhance contrast slightly
+    heatmap_enhanced = np.power(heatmap_smooth, 0.8)  # Gamma correction
+    
+    # Convert heatmap to RGB using the specified colormap
+    heatmap_colored = cv2.applyColorMap(np.uint8(255 * heatmap_enhanced), colormap)
+    
+    # Convert BGR to RGB for consistency
+    heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
+    
+    # Ensure original image is in RGB format
+    if len(original_img.shape) == 3:
+        original_rgb = cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB)
+    else:
+        original_rgb = original_img
+    
+    # Create a more sophisticated mask
+    # Only overlay where heatmap is meaningful (above threshold)
+    threshold = 0.15
+    mask = heatmap_enhanced > threshold
+    
+    # Create superimposed image
+    superimposed_img = original_rgb.copy().astype(np.float32)
+    overlay = heatmap_colored.astype(np.float32)
+    
+    # Apply overlay with adaptive alpha based on heatmap intensity
+    for c in range(3):  # RGB channels
+        # Use heatmap values to modulate alpha (stronger areas get more overlay)
+        adaptive_alpha = alpha * heatmap_enhanced
+        superimposed_img[:, :, c] = np.where(
+            mask,
+            adaptive_alpha * overlay[:, :, c] + (1 - adaptive_alpha) * superimposed_img[:, :, c],
+            superimposed_img[:, :, c]
+        )
+    
+    print(f"Final image shape: {superimposed_img.shape}")
+    
+    return superimposed_img.astype(np.uint8)
 
 def hello_world(request):
     return JsonResponse({"message": "Hello, World!"})
-# Load the model at the beginning
-# MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "fast_plant_disease_model.h5")
-# model = load_model(MODEL_PATH)
-
-# Load class names using the correct ordering (you can extract from a saved dictionary or hardcode)
-# CLASS_NAMES = [
-#     'Apple___Apple_scab',
-#     'Apple___Black_rot',
-#     'Apple___Cedar_apple_rust',
-#     'Apple___healthy',
-#     'Blueberry___healthy',
-#     'Cherry_(including_sour)___Powdery_mildew',
-#     'Cherry_(including_sour)___healthy',
-#     'Corn_(maize)___Cercospora_leaf_spot_Gray_leaf_spot',
-#     'Corn_(maize)___Common_rust_',
-#     'Corn_(maize)___Northern_Leaf_Blight',
-#     'Corn_(maize)___healthy',
-#     'Grape___Black_rot',
-#     'Grape___Esca_(Black_Measles)',
-#     'Grape___Leaf_blight_(Isariopsis_Leaf_Spot)',
-#     'Grape___healthy',
-#     'Orange___Haunglongbing_(Citrus_greening)',
-#     'Peach___Bacterial_spot',
-#     'Peach___healthy',
-#     'Pepper,_bell___Bacterial_spot',
-#     'Pepper,_bell___healthy',
-#     'Potato___Early_blight',
-#     'Potato___Late_blight',
-#     'Potato___healthy',
-#     'Raspberry___healthy',
-#     'Soybean___healthy',
-#     'Squash___Powdery_mildew',
-#     'Strawberry___Leaf_scorch',
-#     'Strawberry___healthy',
-#     'Tomato___Bacterial_spot',
-#     'Tomato___Early_blight',
-#     'Tomato___Late_blight',
-#     'Tomato___Leaf_Mold',
-#     'Tomato___Septoria_leaf_spot',
-#     'Tomato___Spider_mites_Two-spotted_spider_mite',
-#     'Tomato___Target_Spot',
-#     'Tomato___Tomato_Yellow_Leaf_Curl_Virus',
-#     'Tomato___Tomato_mosaic_virus',
-#     'Tomato___healthy'
-# ]
-# @api_view(['POST'])
-# def detect_disease(request):
-#     try:
-#         # Get the image file from the request
-#         image_file = request.FILES['image']
-        
-#         # Save the image to a temporary path
-#         file_path = default_storage.save(f"temp/{image_file.name}", image_file)
-
-#         # Read and preprocess the image
-#         img = cv2.imread(file_path)
-#         img = cv2.resize(img, (96, 96))
-#         img = img / 255.0
-#         img_array = np.expand_dims(img, axis=0)
-#         print(f"Image shape: {img_array.shape}")
-
-#         # Predict the disease using the model
-#         predictions = model.predict(img_array)
-#         predicted_index = np.argmax(predictions)
-
-#         # Check if the predicted class index is valid
-#         if predicted_index >= len(CLASS_NAMES):
-#             return Response({'error': 'Predicted class index is out of range.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-#         # Get the predicted disease name and confidence
-#         predicted_disease = CLASS_NAMES[predicted_index]
-#         confidence = float(np.max(predictions))
-
-#         # Clean up: remove the temporary image file
-#         os.remove(file_path)
-
-#         # Return the prediction response
-#         return Response({
-#             'predicted_disease': predicted_disease,
-#             'confidence': confidence
-#         })
-
-#     except Exception as e:
-#         # Print the error for debugging
-#         print(f"Error during detection: {e}")
-        
-#         # Return a 500 internal server error with the error message
-#         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "yolov8s.pt")
-model = YOLO(MODEL_PATH)
-
-# Class names
-CLASS_NAMES = [
-    "Apple Scab Leaf",
-    "Apple leaf",
-    "Apple rust leaf",
-    "Bell_pepper leaf spot",
-    "Bell_pepper leaf",
-    "Blueberry leaf",
-    "Cherry leaf",
-    "Corn Gray leaf spot",
-    "Corn leaf blight",
-    "Corn rust leaf",
-    "Peach leaf",
-    "Potato leaf late blight",
-    "Potato leaf",
-    "Raspberry leaf",
-    "Soyabean leaf",
-    "Squash Powdery mildew leaf",
-    "Strawberry leaf",
-    "Tomato Early blight leaf",
-    "Tomato Septoria leaf spot",
-    "Tomato leaf bacterial spot",
-    "Tomato leaf late blight",
-    "Tomato leaf mosaic virus",
-    "Tomato leaf yellow virus",
-    "Tomato leaf",
-    "Tomato mold leaf",
-    "Tomato two spotted spider mites leaf",
-    "grape leaf black rot",
-    "grape leaf"
-]
-
-def draw_bounding_boxes(image_path, detections):
-    """
-    Draw bounding boxes on the image and return the annotated image as base64
-    """
-    # Read the image
-    img = cv2.imread(image_path)
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    
-    # Define colors for different detections
-    colors = [
-        (255, 0, 0),    # Red
-        (0, 255, 0),    # Green
-        (0, 0, 255),    # Blue
-        (255, 255, 0),  # Yellow
-        (255, 0, 255),  # Magenta
-        (0, 255, 255),  # Cyan
-    ]
-    
-    # Draw bounding boxes and labels
-    for i, detection in enumerate(detections):
-        x1, y1, x2, y2 = detection['bounding_box'].values()
-        x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-        
-        # Get color for this detection
-        color = colors[i % len(colors)]
-        
-        # Draw bounding box
-        cv2.rectangle(img_rgb, (x1, y1), (x2, y2), color, 3)
-        
-        # Prepare label
-        label = f"{detection['disease'].replace('_', ' ')}: {detection['confidence']:.2f}"
-        
-        # Get text size
-        (text_width, text_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
-        
-        # Draw label background
-        cv2.rectangle(img_rgb, (x1, y1 - text_height - 10), (x1 + text_width, y1), color, -1)
-        
-        # Draw label text
-        cv2.putText(img_rgb, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-    
-    # Convert image to base64
-    _, buffer = cv2.imencode('.jpg', cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR))
-    img_base64 = base64.b64encode(buffer).decode('utf-8')
-    
-    return f"data:image/jpeg;base64,{img_base64}"
 
 @api_view(['POST'])
 def detect_disease(request):
     try:
         # Get the image file from the request
         image_file = request.FILES['image']
+
+        # Save the image to a temporary path
+        file_path = default_storage.save(f"temp/{image_file.name}", image_file)
+        full_file_path = default_storage.path(file_path)
+
+        # Read original image
+        original_img = cv2.imread(full_file_path)
+        if original_img is None:
+            return Response({'error': 'Could not read the uploaded image'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Create a temporary file to save the uploaded image
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
-            for chunk in image_file.chunks():
-                temp_file.write(chunk)
-            temp_file_path = temp_file.name
+        original_height, original_width = original_img.shape[:2]
+
+        # Preprocess image for classification (MobileNetV2 expects 96x96)
+        img_classification = cv2.resize(original_img, (96, 96))
+        img_classification = img_classification / 255.0  # Normalize to [0,1]
+        img_array = np.expand_dims(img_classification, axis=0)
+
+        print(f"Input image shape: {img_array.shape}")
+
+        # Predict the disease using the classification model
+        predictions = classification_model.predict(img_array, verbose=0)
+        predicted_index = np.argmax(predictions)
         
-        try:
-            # Make prediction using YOLO model
-            results = model.predict(
-                source=temp_file_path,
-                conf=0.5,  # Confidence threshold
-                verbose=False
-            )
+        print(f"Predictions shape: {predictions.shape}")
+        print(f"Predicted index: {predicted_index}")
+
+        # Check if the predicted class index is valid
+        if predicted_index >= len(CLASS_NAMES):
+            return Response({'error': 'Predicted class index is out of range.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Get the predicted disease name and confidence
+        predicted_disease = CLASS_NAMES[predicted_index]
+        confidence = float(np.max(predictions))
+
+        print(f"Predicted disease: {predicted_disease}, Confidence: {confidence}")
+
+        # Initialize response data
+        response_data = {
+            'predicted_disease': predicted_disease,
+            'confidence': confidence
+        }
+
+        # Check if disease is detected and not healthy
+        is_healthy = 'healthy' in predicted_disease.lower()
+        
+        # Generate GradCAM for any prediction with reasonable confidence
+        if confidence > 0.3:  # Generate GradCAM for both healthy and diseased plants
+            print(f"Generating GradCAM for: {predicted_disease}")
             
-            detections = []
-            
-            # Process the results
-            for result in results:
-                boxes = result.boxes
-                if boxes is not None and len(boxes) > 0:
-                    for box in boxes:
-                        # Get detection data
-                        confidence = float(box.conf[0].cpu().numpy())
-                        class_id = int(box.cls[0].cpu().numpy())
-                        
-                        # Get bounding box coordinates
-                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                        
-                        # Ensure class_id is within valid range
-                        if class_id < len(CLASS_NAMES):
-                            class_name = CLASS_NAMES[class_id]
-                            
-                            detections.append({
-                                'disease': class_name,
-                                'confidence': confidence,
-                                'bounding_box': {
-                                    'x1': float(x1),
-                                    'y1': float(y1),
-                                    'x2': float(x2),
-                                    'y2': float(y2)
-                                }
-                            })
-            
-            # Generate annotated image if detections found
-            annotated_image = None
-            if detections:
-                annotated_image = draw_bounding_boxes(temp_file_path, detections)
-            
-            # Clean up: remove the temporary image file
-            os.unlink(temp_file_path)
-            
-            # Return response based on detections
-            if detections:
-                # Find the detection with highest confidence
-                best_detection = max(detections, key=lambda x: x['confidence'])
+            try:
+                # Find the last convolutional layer for MobileNetV2
+                last_conv_layer_name = get_mobilenet_last_conv_layer(classification_model)
                 
-                return Response({
-                    'predicted_disease': best_detection['disease'],
-                    'confidence': best_detection['confidence'],
-                    'all_detections': detections,
-                    'detection_count': len(detections),
-                    'annotated_image': annotated_image  # Base64 image with bounding boxes
+                if last_conv_layer_name is None:
+                    print("Warning: No suitable convolutional layer found in the model")
+                    
+                    # Fallback to original image
+                    with open(full_file_path, "rb") as img_file:
+                        img_base64 = base64.b64encode(img_file.read()).decode()
+                    response_data.update({
+                        'gradcam_image': f"data:image/jpeg;base64,{img_base64}",
+                        'gradcam_generated': False,
+                        'gradcam_error': "No suitable convolutional layer found"
+                    })
+                else:
+                    print(f"Using layer: {last_conv_layer_name}")
+                    
+                    # Generate GradCAM heatmap
+                    heatmap = make_gradcam_heatmap(
+                        img_array, 
+                        classification_model, 
+                        last_conv_layer_name, 
+                        pred_index=predicted_index
+                    )
+                    
+                    print(f"Heatmap shape: {heatmap.shape}")
+                    print(f"Heatmap min/max: {np.min(heatmap):.3f}/{np.max(heatmap):.3f}")
+                    
+                    # Apply GradCAM overlay to original image
+                    # Use different color schemes for healthy vs diseased
+                    colormap = cv2.COLORMAP_VIRIDIS if is_healthy else cv2.COLORMAP_JET
+                    alpha = 0.4 if is_healthy else 0.5
+                    
+                    gradcam_img = apply_gradcam_to_image(
+                        original_img, 
+                        heatmap, 
+                        alpha=alpha, 
+                        colormap=colormap
+                    )
+                    
+                    # Convert to PIL and then to base64
+                    gradcam_pil = Image.fromarray(gradcam_img)
+                    buffered = io.BytesIO()
+                    gradcam_pil.save(buffered, format="JPEG", quality=95)
+                    img_base64 = base64.b64encode(buffered.getvalue()).decode()
+                    
+                    response_data.update({
+                        'gradcam_image': f"data:image/jpeg;base64,{img_base64}",
+                        'gradcam_generated': True,
+                        'visualization_type': 'gradcam',
+                        'last_conv_layer': last_conv_layer_name,
+                        'colormap_used': 'viridis' if is_healthy else 'jet'
+                    })
+                    
+            except Exception as gradcam_error:
+                print(f"GradCAM generation failed: {gradcam_error}")
+                import traceback
+                traceback.print_exc()
+                
+                # Fallback to original image
+                with open(full_file_path, "rb") as img_file:
+                    img_base64 = base64.b64encode(img_file.read()).decode()
+                response_data.update({
+                    'gradcam_image': f"data:image/jpeg;base64,{img_base64}",
+                    'gradcam_generated': False,
+                    'gradcam_error': str(gradcam_error)
                 })
-            else:
-                return Response({
-                    'predicted_disease': 'No disease detected',
-                    'confidence': 0.0,
-                    'all_detections': [],
-                    'detection_count': 0,
-                    'annotated_image': None
-                })
-        
-        except Exception as model_error:
-            # Clean up temp file in case of error
-            if os.path.exists(temp_file_path):
-                os.unlink(temp_file_path)
-            raise model_error
-            
+        else:
+            # For very low confidence, return original image
+            print(f"Low confidence ({confidence:.3f}), skipping GradCAM")
+            with open(full_file_path, "rb") as img_file:
+                img_base64 = base64.b64encode(img_file.read()).decode()
+            response_data.update({
+                'gradcam_image': f"data:image/jpeg;base64,{img_base64}",
+                'gradcam_generated': False,
+                'reason': 'low_confidence'
+            })
+
+        # Clean up: remove the temporary image file
+        os.remove(full_file_path)
+
+        return Response(response_data)
+
     except Exception as e:
         # Print the error for debugging
         print(f"Error during detection: {e}")
-        
-        # Return a 500 internal server error with the error message
+        import traceback
+        traceback.print_exc()
+
+        # Clean up in case of error
+        try:
+            if 'full_file_path' in locals():
+                os.remove(full_file_path)
+        except:
+            pass
+
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -351,17 +452,15 @@ def crop_recommendation(request):
     except Exception as e:
         return JsonResponse({"detail": f"Server error: {str(e)}"}, status=500)
 
-# @require_GET
-# def user_history(request):
-#     # This is mock data; replace it with data from the database if needed
-#     history_data = [
-#         {
-#             "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-#             "disease": "Rust"
-#         },
-#         {
-#             "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-#             "crop_recommendation": "Wheat, Rice"
-#         }
-#     ]
-#     return JsonResponse(history_data, safe=False)
+    # This is mock data; replace it with data from the database if needed
+    history_data = [
+        {
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "disease": "Rust"
+        },
+        {
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "crop_recommendation": "Wheat, Rice"
+        }
+    ]
+    return JsonResponse(history_data, safe=False)
