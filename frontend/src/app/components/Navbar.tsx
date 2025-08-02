@@ -9,7 +9,6 @@ export default function Navbar() {
         <Link href="/">Home</Link>
         <Link href="/disease-detection">Disease Detection</Link>
         <Link href="/crop-recommendation">Crop Recommendation</Link>
-        <Link href="/dashboard">Dashboard</Link>
       </div>
     </nav>
   );
