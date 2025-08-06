@@ -59,6 +59,355 @@ CLASS_NAMES = [
     'Tomato___healthy'
 ]
 
+DISEASE_INFO = {
+    'Apple___Apple_scab': {
+        'symptoms': [
+            "Olive-green or brown spots on leaves, fruit, and twigs.",
+            "Leaves may become twisted and puckered.",
+            "Infected fruit develops dark, scabby spots.",
+            "Severe infections can cause premature leaf and fruit drop."
+        ],
+        'remedies': [
+            "Prune and destroy infected twigs and leaves.",
+            "Apply fungicides from bud break until midsummer.",
+            "Rake up and dispose of fallen leaves in autumn to reduce overwintering spores.",
+            "Plant resistant apple varieties."
+        ]
+    },
+    'Apple___Black_rot': {
+        'symptoms': [
+            "Brown to black, circular spots on leaves.",
+            "Cankers on branches, which can girdle and kill them.",
+            "Fruit develops a firm, brown to black rot, often starting at the blossom end."
+        ],
+        'remedies': [
+            "Prune out cankered branches and dead wood.",
+            "Remove and destroy infected fruit.",
+            "Apply fungicides during the growing season.",
+            "Maintain good air circulation through proper pruning."
+        ]
+    },
+    'Apple___Cedar_apple_rust': {
+        'symptoms': [
+            "Bright yellow-orange spots on leaves.",
+            "Spots may develop small black dots in the center.",
+            "On fruit, raised orange-yellow spots appear.",
+            "Galls form on nearby cedar or juniper trees."
+        ],
+        'remedies': [
+            "Remove nearby cedar and juniper trees if possible.",
+            "Apply fungicides starting at bud break.",
+            "Plant rust-resistant apple varieties.",
+            "Prune and destroy galls on cedar trees in late winter."
+        ]
+    },
+    'Cherry_(including_sour)___Powdery_mildew': {
+        'symptoms': [
+            "White, powdery patches on leaves, shoots, and sometimes fruit.",
+            "Leaves may become distorted, curled, or stunted.",
+            "Infected blossoms may fail to set fruit."
+        ],
+        'remedies': [
+            "Apply fungicides (sulfur, potassium bicarbonate, or neem oil) at the first sign of disease.",
+            "Ensure good air circulation by pruning.",
+            "Avoid overhead watering to keep foliage dry.",
+            "Remove and destroy infected plant parts."
+        ]
+    },
+    'Corn_(maize)___Cercospora_leaf_spot_Gray_leaf_spot': {
+        'symptoms': [
+            "Small, necrotic spots that elongate into long, rectangular, tan lesions.",
+            "Lesions are typically restricted by leaf veins.",
+            "Severe infections can cause leaves to blight and die prematurely."
+        ],
+        'remedies': [
+            "Plant resistant corn hybrids.",
+            "Use crop rotation with non-host crops.",
+            "Manage residue by tilling to reduce fungal survival.",
+            "Apply fungicides when disease is first detected."
+        ]
+    },
+    'Corn_(maize)___Common_rust_': {
+        'symptoms': [
+            "Small, cinnamon-brown, powdery pustules on both upper and lower leaf surfaces.",
+            "Pustules can also appear on stalks and husks.",
+            "Pustules rupture to release reddish-brown spores."
+        ],
+        'remedies': [
+            "Plant resistant hybrids.",
+            "Fungicide applications are effective but often not economically necessary for common rust.",
+            "Early planting can help the crop mature before rust becomes severe."
+        ]
+    },
+    'Corn_(maize)___Northern_Leaf_Blight': {
+        'symptoms': [
+            "Large, cigar-shaped, grayish-green to tan lesions on leaves.",
+            "Lesions can be 1 to 6 inches long.",
+            "Severe infection can lead to significant yield loss."
+        ],
+        'remedies': [
+            "Plant resistant hybrids.",
+            "Crop rotation and tillage to manage crop residue.",
+            "Apply fungicides based on scouting and disease pressure."
+        ]
+    },
+    'Grape___Black_rot': {
+        'symptoms': [
+            "Small, yellowish spots on leaves that enlarge and turn brown to black.",
+            "Fruit develops small, whitish spots that enlarge, turning the entire berry black, hard, and mummified."
+        ],
+        'remedies': [
+            "Apply fungicides starting early in the season and continuing through veraison.",
+            "Prune vines to improve air circulation.",
+            "Remove and destroy infected canes, leaves, and mummified fruit.",
+            "Practice good sanitation in the vineyard."
+        ]
+    },
+    'Grape___Esca_(Black_Measles)': {
+        'symptoms': [
+            "Leaves show 'tiger-stripe' patterns of chlorosis and necrosis between veins.",
+            "Small, dark spots on grape berries, often in a circular pattern.",
+            "In chronic form, causes dieback of cordons and trunk."
+        ],
+        'remedies': [
+            "No effective chemical cure. Management focuses on prevention.",
+            "Prune out and destroy infected wood.",
+            "Protect pruning wounds with a sealant.",
+            "Delayed pruning (late winter/early spring) can reduce infection risk."
+        ]
+    },
+    'Grape___Leaf_blight_(Isariopsis_Leaf_Spot)': {
+        'symptoms': [
+            "Dark reddish-brown to black spots on leaves, often with a lighter tan center.",
+            "Spots may merge, causing large areas of the leaf to die.",
+            "Severe infection can cause premature defoliation."
+        ],
+        'remedies': [
+            "Fungicide sprays used for other grape diseases (like black rot) are usually effective.",
+            "Improve air circulation through canopy management.",
+            "Rake and destroy fallen leaves to reduce inoculum."
+        ]
+    },
+    'Orange___Haunglongbing_(Citrus_greening)': {
+        'symptoms': [
+            "Blotchy, mottled leaves (asymmetrical yellowing).",
+            "Stunted growth and twig dieback.",
+            "Fruit is small, lopsided, and remains green at the bottom.",
+            "Fruit tastes bitter and salty."
+        ],
+        'remedies': [
+            "There is no cure for citrus greening.",
+            "Management involves removing and destroying infected trees.",
+            "Control the Asian citrus psyllid, the insect that spreads the disease, with insecticides.",
+            "Plant certified disease-free trees."
+        ]
+    },
+    'Peach___Bacterial_spot': {
+        'symptoms': [
+            "Small, water-soaked spots on leaves that turn purple to black.",
+            "The center of the spots may fall out, creating a 'shot-hole' appearance.",
+            "Fruit develops pitted, cracked, or sunken spots."
+        ],
+        'remedies': [
+            "Plant resistant peach varieties.",
+            "Apply bactericides (copper-based sprays) during the dormant season and early in the growing season.",
+            "Maintain tree vigor with proper fertilization and watering."
+        ]
+    },
+    'Pepper,_bell___Bacterial_spot': {
+        'symptoms': [
+            "Small, water-soaked spots on leaves that become dark and greasy.",
+            "Spots may have a yellow halo.",
+            "Fruit develops raised, scab-like spots.",
+            "Severe infection can cause leaf and blossom drop."
+        ],
+        'remedies': [
+            "Use disease-free seeds and transplants.",
+            "Rotate crops, avoiding fields where peppers or tomatoes were recently grown.",
+            "Apply copper-based bactericides.",
+            "Avoid working in fields when plants are wet."
+        ]
+    },
+    'Potato___Early_blight': {
+        'symptoms': [
+            "Dark, circular to irregular spots on lower leaves, often with a 'target-like' pattern of concentric rings.",
+            "A yellow halo may surround the spots.",
+            "Tubers can develop dark, sunken lesions."
+        ],
+        'remedies': [
+            "Plant certified disease-free seed potatoes.",
+            "Rotate crops with non-susceptible crops.",
+            "Apply fungicides preventatively, especially during warm, humid weather.",
+            "Destroy volunteer potato plants and weeds."
+        ]
+    },
+    'Potato___Late_blight': {
+        'symptoms': [
+            "Large, dark, water-soaked spots on leaves, often with a pale green border.",
+            "A white, fuzzy mold may appear on the underside of leaves in humid conditions.",
+            "Tubers develop a reddish-brown, dry rot."
+        ],
+        'remedies': [
+            "Plant resistant varieties and certified seed potatoes.",
+            "Apply fungicides on a regular schedule, especially during cool, wet weather.",
+            "Destroy infected plants and cull piles to reduce inoculum.",
+            "Ensure good air circulation."
+        ]
+    },
+    'Squash___Powdery_mildew': {
+        'symptoms': [
+            "White, powdery spots on leaves, stems, and petioles.",
+            "Spots can spread to cover entire leaves.",
+            "Infected leaves may turn yellow and die.",
+            "Fruit may be smaller and of poor quality."
+        ],
+        'remedies': [
+            "Plant resistant varieties.",
+            "Apply fungicides (neem oil, sulfur, or potassium bicarbonate) at first sign of disease.",
+            "Improve air circulation by spacing plants properly.",
+            "Water at the base of the plant to keep foliage dry."
+        ]
+    },
+    'Strawberry___Leaf_scorch': {
+        'symptoms': [
+            "Irregular, purplish blotches on leaves.",
+            "The center of the blotches turns brown, and the tissue dies, giving a 'scorched' appearance.",
+            "Petioles and runners can also be affected."
+        ],
+        'remedies': [
+            "Plant resistant varieties.",
+            "Renovate strawberry beds after harvest by mowing and removing old leaves.",
+            "Apply fungicides if the disease is severe.",
+            "Maintain good air circulation and sunlight exposure."
+        ]
+    },
+    'Tomato___Bacterial_spot': {
+        'symptoms': [
+            "Small, water-soaked, circular spots on leaves and stems that turn greasy and black.",
+            "Spots may have a yellow halo.",
+            "Fruit develops raised, black, scabby spots."
+        ],
+        'remedies': [
+            "Use certified disease-free seed and transplants.",
+            "Rotate crops, avoiding fields where tomatoes or peppers were grown.",
+            "Apply copper-based bactericides.",
+            "Avoid overhead irrigation."
+        ]
+    },
+    'Tomato___Early_blight': {
+        'symptoms': [
+            "Dark spots with concentric rings ('target spots') on lower leaves.",
+            "A yellow halo often surrounds the spots.",
+            "Can cause 'collar rot' on stems near the soil line.",
+            "Fruit can develop dark, leathery spots near the stem."
+        ],
+        'remedies': [
+            "Plant resistant varieties.",
+            "Stake or cage plants to improve air circulation.",
+            "Apply fungicides preventatively.",
+            "Mulch around plants to reduce soil splash.",
+            "Remove and destroy infected lower leaves."
+        ]
+    },
+    'Tomato___Late_blight': {
+        'symptoms': [
+            "Large, greasy, gray-green spots on leaves that quickly turn brown.",
+            "White, fuzzy mold may appear on the underside of leaves.",
+            "Stems develop large black lesions.",
+            "Fruit develops large, firm, brown, greasy spots."
+        ],
+        'remedies': [
+            "Plant resistant varieties.",
+            "Apply fungicides on a regular schedule, especially in cool, wet weather.",
+            "Destroy infected plants immediately to prevent spread.",
+            "Ensure good spacing for air circulation."
+        ]
+    },
+    'Tomato___Leaf_Mold': {
+        'symptoms': [
+            "Pale green or yellowish spots on the upper surface of leaves.",
+            "Olive-green to brownish, velvety mold on the underside of leaves corresponding to the spots.",
+            "Primarily a greenhouse disease."
+        ],
+        'remedies': [
+            "Use resistant varieties.",
+            "Improve air circulation and reduce humidity in greenhouses.",
+            "Water at the base of plants to keep foliage dry.",
+            "Apply fungicides if necessary."
+        ]
+    },
+    'Tomato___Septoria_leaf_spot': {
+        'symptoms': [
+            "Many small, circular spots with dark borders and tan or gray centers on lower leaves.",
+            "Small black dots (pycnidia) may be visible in the center of the spots.",
+            "Leaves turn yellow, wither, and fall off."
+        ],
+        'remedies': [
+            "Remove and destroy infected leaves.",
+            "Mulch around plants to prevent soil splash.",
+            "Improve air circulation.",
+            "Apply fungicides.",
+            "Rotate crops."
+        ]
+    },
+    'Tomato___Spider_mites_Two-spotted_spider_mite': {
+        'symptoms': [
+            "Yellow stippling or tiny dots on leaves.",
+            "Fine webbing on the underside of leaves or between stems.",
+            "Leaves may turn yellow or bronze and become dry.",
+            "Heavy infestations can cause plant death."
+        ],
+        'remedies': [
+            "Spray plants with a strong jet of water to dislodge mites.",
+            "Apply insecticidal soap or horticultural oils.",
+            "Introduce predatory mites (a form of biological control).",
+            "Keep plants well-watered to reduce stress."
+        ]
+    },
+    'Tomato___Target_Spot': {
+        'symptoms': [
+            "Small, water-soaked spots on leaves that enlarge into lesions with distinct concentric rings ('target spots').",
+            "Spots are typically dark brown to black.",
+            "Can also affect stems and fruit."
+        ],
+        'remedies': [
+            "Improve air circulation.",
+            "Apply fungicides containing chlorothalonil or mancozeb.",
+            "Rotate crops.",
+            "Remove crop debris after harvest."
+        ]
+    },
+    'Tomato___Tomato_Yellow_Leaf_Curl_Virus': {
+        'symptoms': [
+            "Severe stunting of the plant.",
+            "Upward curling and yellowing of leaves.",
+            "Leaves are often smaller than normal.",
+            "Reduced fruit set."
+        ],
+        'remedies': [
+            "No cure for the virus.",
+            "Control the whitefly vector with insecticides or physical barriers (netting).",
+            "Plant resistant varieties.",
+            "Remove and destroy infected plants immediately."
+        ]
+    },
+    'Tomato___Tomato_mosaic_virus': {
+        'symptoms': [
+            "Light and dark green mottling or mosaic pattern on leaves.",
+            "Leaves may be curled, malformed, or stunted.",
+            "Internal browning of fruit.",
+            "Overall plant stunting."
+        ],
+        'remedies': [
+            "No cure for the virus.",
+            "Use certified disease-free seed.",
+            "Wash hands thoroughly before handling plants, especially after using tobacco products.",
+            "Remove and destroy infected plants.",
+            "Control weeds that may host the virus."
+        ]
+    }
+}
+
 # Load the model
 MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "fast_plant_disease_model.h5")
 classification_model = load_model(MODEL_PATH)
@@ -280,10 +629,18 @@ def detect_disease(request):
 
         print(f"Predicted disease: {predicted_disease}, Confidence: {confidence}")
 
+        # Get symptoms and remedies
+        disease_details = DISEASE_INFO.get(predicted_disease, {
+            'symptoms': ["No information available for this disease."],
+            'remedies': ["Please consult a local agricultural expert."]
+        })
+
         # Initialize response data
         response_data = {
             'predicted_disease': predicted_disease,
-            'confidence': confidence
+            'confidence': confidence,
+            'symptoms': disease_details['symptoms'],
+            'remedies': disease_details['remedies']
         }
 
         # Check if disease is detected and not healthy
