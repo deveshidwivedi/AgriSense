@@ -412,6 +412,138 @@ DISEASE_INFO = {
 MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "fast_plant_disease_model.h5")
 classification_model = load_model(MODEL_PATH)
 
+def create_plant_mask(image, method='combined'):
+    """
+    Create a mask to identify plant regions and exclude background.
+    Uses multiple approaches for robustness.
+    
+    Args:
+        image: Input image (BGR format from cv2)
+        method: 'hsv', 'grabcut', 'combined'
+    
+    Returns:
+        Binary mask where 1 represents plant regions
+    """
+    height, width = image.shape[:2]
+    
+    if method == 'hsv' or method == 'combined':
+        # Method 1: HSV color-based segmentation for green vegetation
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        
+        # Define range for green colors (plants/leaves)
+        # Lower and upper bounds for green hues
+        lower_green1 = np.array([35, 40, 40])   # Light green
+        upper_green1 = np.array([85, 255, 255]) # Dark green
+        
+        # Create mask for green regions
+        green_mask = cv2.inRange(hsv, lower_green1, upper_green1)
+        
+        # Also include yellow-green regions (diseased leaves)
+        lower_yellow_green = np.array([25, 40, 40])
+        upper_yellow_green = np.array([35, 255, 255])
+        yellow_green_mask = cv2.inRange(hsv, lower_yellow_green, upper_yellow_green)
+        
+        # Combine green and yellow-green masks
+        hsv_mask = cv2.bitwise_or(green_mask, yellow_green_mask)
+        
+        # Include brown/orange regions (diseased/dead plant parts)
+        lower_brown = np.array([10, 50, 20])
+        upper_brown = np.array([25, 255, 200])
+        brown_mask = cv2.inRange(hsv, lower_brown, upper_brown)
+        
+        hsv_mask = cv2.bitwise_or(hsv_mask, brown_mask)
+        
+        if method == 'hsv':
+            final_mask = hsv_mask
+    
+    if method == 'grabcut' or method == 'combined':
+        # Method 2: GrabCut algorithm for foreground extraction
+        mask_grabcut = np.zeros((height, width), np.uint8)
+        
+        # Define rectangle around the center region (assuming plant is centered)
+        margin_x, margin_y = width // 6, height // 6
+        rect = (margin_x, margin_y, width - 2*margin_x, height - 2*margin_y)
+        
+        # Initialize background and foreground models
+        bgd_model = np.zeros((1, 65), np.float64)
+        fgd_model = np.zeros((1, 65), np.float64)
+        
+        try:
+            # Run GrabCut algorithm
+            cv2.grabCut(image, mask_grabcut, rect, bgd_model, fgd_model, 3, cv2.GC_INIT_WITH_RECT)
+            
+            # Extract probable foreground and definite foreground
+            grabcut_mask = np.where((mask_grabcut == 2) | (mask_grabcut == 0), 0, 1).astype('uint8') * 255
+            
+            if method == 'grabcut':
+                final_mask = grabcut_mask
+        except:
+            print("GrabCut failed, falling back to HSV method")
+            if method == 'grabcut':
+                # Fallback to HSV if GrabCut fails
+                return create_plant_mask(image, method='hsv')
+    
+    if method == 'combined':
+        # Combine both methods
+        try:
+            # Weight HSV mask more heavily as it's more reliable for plants
+            final_mask = cv2.bitwise_or(hsv_mask, grabcut_mask)
+            
+            # If GrabCut failed, use only HSV
+            if 'grabcut_mask' not in locals():
+                final_mask = hsv_mask
+        except:
+            final_mask = hsv_mask
+    
+    # Post-processing to clean up the mask
+    final_mask = post_process_mask(final_mask, image)
+    
+    return final_mask
+
+def post_process_mask(mask, original_image):
+    """
+    Clean up the mask using morphological operations and region analysis.
+    """
+    # Convert to binary if not already
+    if mask.max() > 1:
+        mask = (mask > 127).astype(np.uint8)
+    else:
+        mask = mask.astype(np.uint8)
+    
+    # Remove small noise
+    kernel_small = np.ones((3, 3), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_small)
+    
+    # Fill small holes
+    kernel_medium = np.ones((5, 5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_medium)
+    
+    # Remove very small connected components
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    
+    # Calculate minimum area threshold (2% of image area)
+    min_area = (mask.shape[0] * mask.shape[1]) * 0.02
+    
+    # Create new mask with only significant components
+    new_mask = np.zeros_like(mask)
+    for i in range(1, num_labels):  # Skip background (label 0)
+        if stats[i, cv2.CC_STAT_AREA] >= min_area:
+            new_mask[labels == i] = 1
+    
+    # If no significant components found, use a fallback strategy
+    if new_mask.sum() == 0:
+        print("No significant plant regions detected, using center region as fallback")
+        h, w = mask.shape
+        center_h, center_w = h // 2, w // 2
+        margin_h, margin_w = h // 4, w // 4
+        new_mask[center_h-margin_h:center_h+margin_h, center_w-margin_w:center_w+margin_w] = 1
+    
+    # Smooth the mask edges
+    new_mask = cv2.GaussianBlur(new_mask.astype(np.float32), (5, 5), 1.5)
+    new_mask = (new_mask > 0.5).astype(np.uint8)
+    
+    return new_mask
+
 def get_mobilenet_last_conv_layer(model):
     """
     Get a suitable convolutional layer for MobileNetV2-based models.
@@ -473,11 +605,8 @@ def make_gradcam_heatmap(img_array, model, last_conv_layer_name, pred_index=None
     print(f"Creating GradCAM for layer: {last_conv_layer_name}")
     
     try:
-        # Get the target layer
         target_layer = model.get_layer(last_conv_layer_name)
         
-        # Create a model that maps the input image to the activations of the target layer
-        # as well as the output predictions
         grad_model = Model(
             inputs=[model.inputs],
             outputs=[target_layer.output, model.output]
@@ -485,7 +614,6 @@ def make_gradcam_heatmap(img_array, model, last_conv_layer_name, pred_index=None
         
         print(f"Grad model created successfully")
         
-        # Compute the gradient of the top predicted class
         with tf.GradientTape() as tape:
             conv_outputs, predictions = grad_model(img_array)
             if pred_index is None:
@@ -494,21 +622,17 @@ def make_gradcam_heatmap(img_array, model, last_conv_layer_name, pred_index=None
         
         print(f"Forward pass completed, computing gradients...")
         
-        # Get the gradients of the class output with respect to the feature map
         grads = tape.gradient(class_channel, conv_outputs)
         
         if grads is None:
             raise ValueError("Gradients are None - the layer might not be suitable for GradCAM")
         
-        # Global average pooling of the gradients
         pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
         
-        # Multiply each channel by its importance and sum
         conv_outputs = conv_outputs[0]
         heatmap = conv_outputs @ pooled_grads[..., tf.newaxis]
         heatmap = tf.squeeze(heatmap)
         
-        # Normalize the heatmap
         heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
         
         print(f"GradCAM heatmap generated successfully, shape: {heatmap.shape}")
@@ -519,71 +643,81 @@ def make_gradcam_heatmap(img_array, model, last_conv_layer_name, pred_index=None
         print(f"Error in make_gradcam_heatmap: {e}")
         raise e
 
-def apply_gradcam_to_image(original_img, heatmap, alpha=0.5, colormap=cv2.COLORMAP_JET):
+def apply_gradcam_to_image_with_mask(original_img, heatmap, plant_mask=None, alpha=0.5, colormap=cv2.COLORMAP_JET):
     """
-    Apply GradCAM heatmap overlay to the original image with enhanced visualization.
+    Apply GradCAM heatmap overlay to the original image with plant masking.
     """
-    # Get original image dimensions
     original_height, original_width = original_img.shape[:2]
     
     print(f"Original image shape: {original_img.shape}")
     print(f"Heatmap shape before resize: {heatmap.shape}")
     
-    # Use high-quality interpolation for upsampling small heatmaps
+    # Resize heatmap to match original image
     if heatmap.shape[0] < 32 or heatmap.shape[1] < 32:
-        # For very small heatmaps, use cubic interpolation
         heatmap_resized = cv2.resize(heatmap, (original_width, original_height), interpolation=cv2.INTER_CUBIC)
     else:
-        # For larger heatmaps, use linear interpolation
         heatmap_resized = cv2.resize(heatmap, (original_width, original_height), interpolation=cv2.INTER_LINEAR)
     
     print(f"Heatmap shape after resize: {heatmap_resized.shape}")
     
+    # Create or use provided plant mask
+    if plant_mask is None:
+        print("Creating plant mask...")
+        plant_mask = create_plant_mask(original_img, method='combined')
+        print(f"Plant mask created, plant region coverage: {plant_mask.sum() / plant_mask.size * 100:.1f}%")
+    
+    # Normalize plant mask to [0, 1]
+    plant_mask_norm = plant_mask.astype(np.float32)
+    if plant_mask_norm.max() > 1:
+        plant_mask_norm = plant_mask_norm / 255.0
+    
+    # Apply mask to heatmap - only show heatmap in plant regions
+    masked_heatmap = heatmap_resized * plant_mask_norm
+    
     # Apply Gaussian smoothing for better visual quality
-    # Kernel size proportional to image size
     kernel_size = max(3, min(15, original_width // 32))
     if kernel_size % 2 == 0:
-        kernel_size += 1  # Ensure odd kernel size
+        kernel_size += 1
     
-    heatmap_smooth = cv2.GaussianBlur(heatmap_resized, (kernel_size, kernel_size), 0)
+    heatmap_smooth = cv2.GaussianBlur(masked_heatmap, (kernel_size, kernel_size), 0)
     
-    # Enhance contrast slightly
-    heatmap_enhanced = np.power(heatmap_smooth, 0.8)  # Gamma correction
+    # Renormalize after masking and smoothing
+    if heatmap_smooth.max() > 0:
+        heatmap_smooth = heatmap_smooth / heatmap_smooth.max()
     
-    # Convert heatmap to RGB using the specified colormap
+    # Enhance contrast
+    heatmap_enhanced = np.power(heatmap_smooth, 0.8)
+    
+    # Convert heatmap to RGB using colormap
     heatmap_colored = cv2.applyColorMap(np.uint8(255 * heatmap_enhanced), colormap)
-    
-    # Convert BGR to RGB for consistency
     heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
     
-    # Ensure original image is in RGB format
+    # Ensure original image is in RGB
     if len(original_img.shape) == 3:
         original_rgb = cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB)
     else:
         original_rgb = original_img
     
-    # Create a more sophisticated mask
-    # Only overlay where heatmap is meaningful (above threshold)
-    threshold = 0.15
-    mask = heatmap_enhanced > threshold
+    # Create overlay with masked regions
+    threshold = 0.1  # Lower threshold since we're using masking
+    activation_mask = (heatmap_enhanced > threshold) & (plant_mask_norm > 0.5)
     
-    # Create superimposed image
     superimposed_img = original_rgb.copy().astype(np.float32)
     overlay = heatmap_colored.astype(np.float32)
     
-    # Apply overlay with adaptive alpha based on heatmap intensity
-    for c in range(3):  # RGB channels
-        # Use heatmap values to modulate alpha (stronger areas get more overlay)
-        adaptive_alpha = alpha * heatmap_enhanced
+    # Apply overlay only in plant regions with adaptive alpha
+    for c in range(3):
+        adaptive_alpha = alpha * heatmap_enhanced * plant_mask_norm
         superimposed_img[:, :, c] = np.where(
-            mask,
+            activation_mask,
             adaptive_alpha * overlay[:, :, c] + (1 - adaptive_alpha) * superimposed_img[:, :, c],
             superimposed_img[:, :, c]
         )
     
     print(f"Final image shape: {superimposed_img.shape}")
+    print(f"GradCAM applied to {activation_mask.sum()} pixels ({activation_mask.sum() / activation_mask.size * 100:.1f}% of image)")
     
-    return superimposed_img.astype(np.uint8)
+    return superimposed_img.astype(np.uint8), plant_mask
 
 def hello_world(request):
     return JsonResponse({"message": "Hello, World!"})
@@ -629,26 +763,30 @@ def detect_disease(request):
 
         print(f"Predicted disease: {predicted_disease}, Confidence: {confidence}")
 
+        # Initialize response data
+        response_data = {
+            'predicted_disease': predicted_disease,
+            'confidence': confidence
+        }
+
+        # Check if disease is detected and not healthy
+        is_healthy = 'healthy' in predicted_disease.lower()
+        
         # Get symptoms and remedies
         disease_details = DISEASE_INFO.get(predicted_disease, {
             'symptoms': ["No information available for this disease."],
             'remedies': ["Please consult a local agricultural expert."]
         })
 
-        # Initialize response data
-        response_data = {
-            'predicted_disease': predicted_disease,
-            'confidence': confidence,
+        # Add disease details to response
+        response_data.update({
             'symptoms': disease_details['symptoms'],
             'remedies': disease_details['remedies']
-        }
+        })
 
-        # Check if disease is detected and not healthy
-        is_healthy = 'healthy' in predicted_disease.lower()
-        
         # Generate GradCAM for any prediction with reasonable confidence
         if confidence > 0.3:  # Generate GradCAM for both healthy and diseased plants
-            print(f"Generating GradCAM for: {predicted_disease}")
+            print(f"Generating masked GradCAM for: {predicted_disease}")
             
             try:
                 # Find the last convolutional layer for MobileNetV2
@@ -679,14 +817,15 @@ def detect_disease(request):
                     print(f"Heatmap shape: {heatmap.shape}")
                     print(f"Heatmap min/max: {np.min(heatmap):.3f}/{np.max(heatmap):.3f}")
                     
-                    # Apply GradCAM overlay to original image
+                    # Apply GradCAM overlay with plant masking
                     # Use different color schemes for healthy vs diseased
                     colormap = cv2.COLORMAP_VIRIDIS if is_healthy else cv2.COLORMAP_JET
                     alpha = 0.4 if is_healthy else 0.5
                     
-                    gradcam_img = apply_gradcam_to_image(
+                    gradcam_img, plant_mask = apply_gradcam_to_image_with_mask(
                         original_img, 
                         heatmap, 
+                        plant_mask=None,  # Will be generated automatically
                         alpha=alpha, 
                         colormap=colormap
                     )
@@ -697,12 +836,17 @@ def detect_disease(request):
                     gradcam_pil.save(buffered, format="JPEG", quality=95)
                     img_base64 = base64.b64encode(buffered.getvalue()).decode()
                     
+                    # Calculate mask statistics for debugging
+                    mask_coverage = plant_mask.sum() / plant_mask.size * 100
+                    
                     response_data.update({
                         'gradcam_image': f"data:image/jpeg;base64,{img_base64}",
                         'gradcam_generated': True,
-                        'visualization_type': 'gradcam',
+                        'visualization_type': 'masked_gradcam',
                         'last_conv_layer': last_conv_layer_name,
-                        'colormap_used': 'viridis' if is_healthy else 'jet'
+                        'colormap_used': 'viridis' if is_healthy else 'jet',
+                        'mask_coverage_percent': round(mask_coverage, 1),
+                        'masking_applied': True
                     })
                     
             except Exception as gradcam_error:
@@ -735,7 +879,6 @@ def detect_disease(request):
         return Response(response_data)
 
     except Exception as e:
-        # Print the error for debugging
         print(f"Error during detection: {e}")
         import traceback
         traceback.print_exc()
@@ -750,6 +893,7 @@ def detect_disease(request):
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 # Construct full paths to model and scaler
 MODEL_PATHH = os.path.join(BASE_DIR, 'models', 'crop_r1.pkl')
