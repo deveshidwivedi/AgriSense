@@ -17,7 +17,7 @@ An easy-to-use platform for farmers to:
 
 - **Frontend**: Next.js (TypeScript)
 - **Backend**: Django
-- **ML Models**: Pretrained models for disease classification and crop recommendation (stored under `backend/models/`)
+- **ML Models**: Disease detection – MobileNetV2 with Grad-CAM; Crop recommendation – RandomForest (artifacts in `backend/models/`)
 
 ---
 
